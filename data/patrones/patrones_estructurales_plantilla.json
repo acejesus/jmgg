@@ -1,0 +1,53 @@
+{
+  "_comentario": "Plantilla de biblioteca de patrones estructurales",
+  "_instrucciones": "Define aquí los patrones que el sistema debe reconocer. Cada patrón tiene un nombre y sus conexiones punto a punto.",
+
+  "FAC_OH2": {
+    "descripcion": "Familia estructural horizontal tipo 2",
+    "conexiones": [
+      [1, 2],
+      [2, 3],
+      [3, 4],
+      [4, 1],
+      [1, 9],
+      [2, 9],
+      [3, 9],
+      [4, 9]
+    ]
+  },
+
+  "FAC_OV2": {
+    "descripcion": "Familia estructural vertical tipo 2",
+    "conexiones": [
+      [1, 2],
+      [2, 3],
+      [3, 4],
+      [4, 1],
+      [5, 7],
+      [6, 8]
+    ]
+  },
+
+  "FAC_X1": {
+    "descripcion": "Familia con diagonales en X",
+    "conexiones": [
+      [1, 2],
+      [2, 3],
+      [3, 4],
+      [4, 1],
+      [1, 3],
+      [2, 4]
+    ]
+  },
+
+  "_notas": {
+    "puntos_referencia": {
+      "1-4": "Esquinas del trapecio (inferior-izq, inferior-der, superior-der, superior-izq)",
+      "5-8": "Puntos medios de los lados",
+      "9": "Centro del trapecio",
+      "100+": "Puntos dinámicos (intersecciones)"
+    },
+    "formato_conexiones": "Cada conexión es un par [punto_inicio, punto_fin]",
+    "ejemplo_uso": "El sistema normalizará cada módulo y comparará sus conexiones con estos patrones"
+  }
+}

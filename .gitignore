@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Archivos temporales
+*.tmp
+*.bak
+*.log
+
+# Archivos grandes de datos (opcional - descomenta si no quieres subir DXF grandes)
+# *.dxf
+
+# Resultados generados (si no quieres versionar los outputs)
+# data/resultados/*.csv
+# data/resultados/*.xlsx
+# data/resultados/diagnosticos/*.png
+
+# Drive mount (Colab)
+drive/
