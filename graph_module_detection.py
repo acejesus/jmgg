@@ -319,16 +319,36 @@ def extender_diagonal_bidireccional(G: nx.Graph, segmento_inicial: Tuple,
     # Combinar todos los segmentos
     todos_segmentos_diagonal = segmentos_atras + segmentos_adelante
 
-    # Obtener extremos
+    # Obtener extremos (simplificado para evitar errores de sintaxis)
     if segmentos_atras:
-        extremo_inicio = segmentos_atras[0][0] if segmentos_atras[0][1] == segmentos_atras[1][0] if len(segmentos_atras) > 1 else n1 else segmentos_atras[0][1]
+        # El extremo inicio es el nodo que NO está conectado a otro segmento de la lista
+        primer_seg = segmentos_atras[0]
+        if len(segmentos_atras) > 1:
+            segundo_seg = segmentos_atras[1]
+            # El extremo es el nodo del primer segmento que NO coincide con el segundo
+            if primer_seg[1] == segundo_seg[0] or primer_seg[1] == segundo_seg[1]:
+                extremo_inicio = primer_seg[0]
+            else:
+                extremo_inicio = primer_seg[1]
+        else:
+            # Solo hay un segmento atrás, el extremo es el que NO es n1
+            extremo_inicio = primer_seg[0] if primer_seg[1] == n1 else primer_seg[1]
     else:
         extremo_inicio = n1
 
     if segmentos_adelante:
-        extremo_fin = segmentos_adelante[-1][1] if segmentos_adelante[-1][0] == extremo_actual else segmentos_adelante[-1][0]
-        if extremo_fin == extremo_actual and len(segmentos_adelante) > 1:
-            extremo_fin = segmentos_adelante[-1][0] if segmentos_adelante[-1][1] == extremo_actual else segmentos_adelante[-1][1]
+        # El extremo fin es el nodo que NO está conectado a otro segmento de la lista
+        ultimo_seg = segmentos_adelante[-1]
+        if len(segmentos_adelante) > 1:
+            penultimo_seg = segmentos_adelante[-2]
+            # El extremo es el nodo del último segmento que NO coincide con el penúltimo
+            if ultimo_seg[0] == penultimo_seg[0] or ultimo_seg[0] == penultimo_seg[1]:
+                extremo_fin = ultimo_seg[1]
+            else:
+                extremo_fin = ultimo_seg[0]
+        else:
+            # Solo hay un segmento adelante, el extremo es el que NO es n2
+            extremo_fin = ultimo_seg[1] if ultimo_seg[0] == n2 else ultimo_seg[0]
     else:
         extremo_fin = n2
 
