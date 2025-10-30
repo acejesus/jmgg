@@ -168,16 +168,22 @@ def detectar_modulos_x_mejorado(G: nx.Graph, section_bounds: Tuple,
 # ================================================================================================
 
 def obtener_alturas_de_diagonales(G: nx.Graph, section_bounds: Tuple,
-                                   symmetry_axis: float, tolerance: float = 0.05) -> List[float]:
+                                   x_centers: List[Dict], tolerance: float = 0.05) -> List[float]:
     """
     Obtiene las alturas Y únicas donde cambian las diagonales en módulos X.
 
     CORRECCIÓN CLAVE:
     - Cada módulo X tiene 4 diagonales (2 pares colineales)
     - Las diagonales comparten extremos Y (superior e inferior del módulo)
-    - Agrupa por coordenadas Y para encontrar límites de módulos
+    - EXCLUYE las coordenadas Y de los centros (estrellas) que NO definen límites
+    - Solo cuenta los extremos exteriores de las diagonales
     """
     y_start, y_end = section_bounds
+
+    # Obtener coordenadas Y de los centros de módulos X (a excluir)
+    y_centros = set()
+    for centro in x_centers:
+        y_centros.add(centro['y'])
 
     # Encontrar todos los segmentos diagonales
     alturas_y = set()
@@ -193,9 +199,15 @@ def obtener_alturas_de_diagonales(G: nx.Graph, section_bounds: Tuple,
                 abs(y1 - y2) > tolerance and  # No horizontal
                 abs(x1 - x2) > tolerance):    # No vertical
 
-                # Agregar ambos extremos Y
-                alturas_y.add(y1)
-                alturas_y.add(y2)
+                # Agregar y1 solo si NO es un centro de módulo X
+                es_centro_1 = any(abs(y1 - yc) < tolerance for yc in y_centros)
+                if not es_centro_1:
+                    alturas_y.add(y1)
+
+                # Agregar y2 solo si NO es un centro de módulo X
+                es_centro_2 = any(abs(y2 - yc) < tolerance for yc in y_centros)
+                if not es_centro_2:
+                    alturas_y.add(y2)
 
     return sorted(list(alturas_y))
 
@@ -252,25 +264,21 @@ def analizar_seccion_con_grafo(G: nx.Graph, section: Dict, symmetry_axis: float,
         if verbose:
             print(f"    ✅ Estrategia: DIAGONALES (módulo X detectado)")
 
-        # Obtener alturas únicas de diagonales
-        alturas_diagonales = obtener_alturas_de_diagonales(G, (y_start, y_end), symmetry_axis, tolerance)
+        # Obtener alturas únicas de diagonales (excluyendo centros)
+        alturas_diagonales = obtener_alturas_de_diagonales(
+            G, (y_start, y_end), deteccion_x['x_centers'], tolerance
+        )
 
         if verbose:
-            print(f"    📊 Alturas Y de diagonales: {len(alturas_diagonales)}")
+            print(f"    📊 Alturas Y de diagonales (sin centros): {len(alturas_diagonales)}")
 
         # Agregar límites de sección
         alturas_modulos = sorted(list(set([y_start, y_end] + alturas_diagonales)))
 
-        # CORRECCIÓN: Agrupar alturas muy cercanas (mismo módulo)
-        alturas_agrupadas = [alturas_modulos[0]]
-        for h in alturas_modulos[1:]:
-            if abs(h - alturas_agrupadas[-1]) > tolerance * 2:  # Si están separadas más de 0.1
-                alturas_agrupadas.append(h)
-
         return {
             'metodo': 'grafo-diagonal',
-            'alturas': alturas_agrupadas,
-            'num_modulos': len(alturas_agrupadas) - 1,
+            'alturas': alturas_modulos,
+            'num_modulos': len(alturas_modulos) - 1,
             'tiene_modulo_x': True,
             'x_centers': deteccion_x['x_centers']
         }
