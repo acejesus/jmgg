@@ -71,6 +71,38 @@ def es_vertical(edge, tolerance=0.01):
     return False
 
 
+def crear_grafo_desde_lineas(lineas: List[Tuple]) -> nx.Graph:
+    """
+    Crea un grafo de NetworkX desde una lista de líneas.
+
+    Args:
+        lineas: Lista de tuplas de la forma (x1, y1, z1, x2, y2, z2)
+                o lista de pares de puntos [(p1, p2), ...]
+
+    Returns:
+        nx.Graph: Grafo con nodos en posiciones y aristas conectando líneas
+    """
+    G = nx.Graph()
+
+    for linea in lineas:
+        if len(linea) == 6:
+            # Formato (x1, y1, z1, x2, y2, z2)
+            x1, y1, z1, x2, y2, z2 = linea
+            p1 = (x1, y1, z1)
+            p2 = (x2, y2, z2)
+        elif len(linea) == 2:
+            # Formato [(p1, p2), ...]
+            p1, p2 = linea
+        else:
+            raise ValueError(f"Formato de línea no reconocido: {linea}")
+
+        G.add_node(p1, pos=p1)
+        G.add_node(p2, pos=p2)
+        G.add_edge(p1, p2)
+
+    return G
+
+
 # ================================================================================================
 # DETECCIÓN DE MÓDULOS X POR NODOS DE ALTO GRADO
 # ================================================================================================
