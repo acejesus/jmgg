@@ -113,10 +113,15 @@ def detectar_modulos_x_por_nodos(G: nx.Graph, section_bounds: Tuple,
     Detecta módulos X buscando nodos de alto grado cerca del eje de simetría.
 
     Patrón de módulo X:
-    - Nodo central de grado 5-6 (cruce de diagonales + horizontales)
+    - Nodo central de grado 4-6 (cruce de diagonales + horizontales)
     - Ubicado cerca del eje de simetría
     - Conecta 2 pares de segmentos colineales (las diagonales)
     - Puede conectar horizontales divididas (que ignoramos)
+
+    MEJORAS v1.1:
+    - Considera grado >= 4 (no solo >= 5) para mayor flexibilidad
+    - Distancia al eje más flexible (30x en vez de 10x)
+    - Mejor diagnóstico cuando no encuentra nodos
 
     Args:
         G: Grafo de NetworkX
@@ -129,23 +134,33 @@ def detectar_modulos_x_por_nodos(G: nx.Graph, section_bounds: Tuple,
     """
     y_start, y_end = section_bounds
 
-    # Paso 1: Encontrar nodos candidatos (grado alto, cerca del eje, en la sección)
+    # Paso 1: Encontrar nodos candidatos con criterios RELAJADOS
     candidatos = []
+    todos_nodos_en_seccion = []
 
     for node in G.nodes():
         if len(node) >= 2:
             x, y = node[0], node[1]
             grado = G.degree(node)
 
-            # Criterios para ser candidato:
-            # - Grado 5 o 6 (cruce complejo)
-            # - Dentro de la sección
-            # - Cerca del eje de simetría (±10% del ancho)
+            # Guardar todos los nodos en sección para diagnóstico
+            if y_start <= y <= y_end:
+                todos_nodos_en_seccion.append({
+                    'nodo': node,
+                    'x': x,
+                    'y': y,
+                    'grado': grado,
+                    'distancia_eje': abs(x - symmetry_axis)
+                })
+
+            # Criterios MEJORADOS para candidatos:
+            # - Grado 4, 5 o 6+ (antes solo 5+)
+            # - Distancia al eje más flexible (30x en vez de 10x)
             distancia_al_eje = abs(x - symmetry_axis)
 
-            if (grado >= 5 and
+            if (grado >= 4 and
                 y_start <= y <= y_end and
-                distancia_al_eje < tolerance * 10):
+                distancia_al_eje < tolerance * 30):  # MEJORADO: 30x en vez de 10x
 
                 candidatos.append({
                     'nodo': node,
@@ -155,11 +170,28 @@ def detectar_modulos_x_por_nodos(G: nx.Graph, section_bounds: Tuple,
                     'distancia_eje': distancia_al_eje
                 })
 
+    # Diagnóstico mejorado si no hay candidatos
     if not candidatos:
+        diagnostics = {
+            'total_nodes': len(todos_nodos_en_seccion),
+            'grade_distribution': {},
+            'closest_nodes': []
+        }
+
+        # Distribución de grados
+        for info in todos_nodos_en_seccion:
+            g = info['grado']
+            diagnostics['grade_distribution'][g] = diagnostics['grade_distribution'].get(g, 0) + 1
+
+        # Nodos más cercanos al eje
+        todos_nodos_en_seccion.sort(key=lambda n: n['distancia_eje'])
+        diagnostics['closest_nodes'] = todos_nodos_en_seccion[:10]
+
         return {
             'detected': False,
             'candidates': 0,
-            'x_centers': []
+            'x_centers': [],
+            'diagnostics': diagnostics
         }
 
     # Paso 2: Para cada candidato, verificar si es realmente un centro de módulo X
@@ -169,8 +201,8 @@ def detectar_modulos_x_por_nodos(G: nx.Graph, section_bounds: Tuple,
         nodo_central = candidato['nodo']
         vecinos = list(G.neighbors(nodo_central))
 
-        # Analizar vecinos para encontrar pares colineales
-        pares_colineales = encontrar_pares_colineales(nodo_central, vecinos, tolerance_angulo=5.0)
+        # Analizar vecinos para encontrar pares colineales (tolerancia aumentada)
+        pares_colineales = encontrar_pares_colineales(nodo_central, vecinos, tolerance_angulo=10.0)  # MEJORADO: 10° en vez de 5°
 
         # Un módulo X debería tener al menos 2 pares colineales (las 2 diagonales)
         if len(pares_colineales) >= 2:
@@ -182,6 +214,7 @@ def detectar_modulos_x_por_nodos(G: nx.Graph, section_bounds: Tuple,
                     break
 
             if tiene_diagonales:
+                candidato['pares_colineales'] = pares_colineales
                 centros_modulo_x.append(candidato)
 
     return {
