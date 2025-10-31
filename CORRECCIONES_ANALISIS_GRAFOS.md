@@ -298,19 +298,43 @@ Si encuentras casos donde la detección falla:
 - ❌ Agrupación no funcionaba transitivamente
 - ❌ Contornos fijos para toda la sección
 
-### V2.1 - Segunda Corrección (Completa) ✅
+### V2.1 - Segunda Corrección (Parcial)
 - ✅ Agrupación Union-Find (transitiva)
 - ✅ Contornos dinámicos por altura Y
 - ✅ Interpolación de aristas en altura específica
-- ✅ Funciona correctamente en torres decrecientes
+- ❌ Agrupación seguía fallando por precisión numérica en ángulos
 
 **Problemas resueltos en V2.1:**
 1. **Sección 1 (Decreciente)**: Ya no rechaza horizontales válidas con contornos variables
 2. **Secciones 2 y 4 (Constantes)**: Ya no acepta todas las horizontales por contornos restrictivos
-3. **Agrupación**: Segmentos en Y=3.960 ahora se agrupan correctamente en un solo grupo
+
+**Problemas NO resueltos en V2.1:**
+3. **Agrupación**: Seguía generando grupos separados para Y=3.960 y Y=11.881
+
+### V2.2 - Corrección CRÍTICA (Completa) ✅
+- ✅ Verificación directa por altura Y para horizontales
+- ✅ Verificación directa por coordenada X para verticales
+- ✅ Eliminación de errores de precisión numérica
+- ✅ Debug mejorado con conteo de pares colineales
+
+**Cambio clave en V2.2:**
+```python
+# ANTES (V2.1): Cálculo de ángulos con precisión numérica
+if son_colineales(p1_1, p1_2, p2_1) and son_colineales(p1_1, p1_2, p2_2):
+    return True  # ❌ Falla por errores ~1e-10 en horizontales
+
+# DESPUÉS (V2.2): Verificación directa para horizontales
+if seg1_es_horizontal and seg2_es_horizontal:
+    return abs(y1_avg - y2_avg) < tolerance_y  # ✅ Directo, sin ángulos
+```
+
+**Problemas resueltos en V2.2:**
+1. **Y=11.881**: 2 grupos → 1 grupo con X=[1.11-5.82]
+2. **Y=3.960**: 2 grupos → 1 grupo con X=[0.37-6.56]
+3. **Agrupación**: Union-Find ahora funciona correctamente para horizontales
 
 ---
 
 **Fecha:** 2025-10-31
-**Versión:** 2.1 (Agrupación Union-Find + Contornos Dinámicos)
-**Estado:** ✅ Listo para Producción
+**Versión:** 2.2 (Verificación Directa por Altura Y + Union-Find + Contornos Dinámicos)
+**Estado:** ✅ Listo para Producción (Corrección Crítica Aplicada)
