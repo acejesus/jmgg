@@ -103,14 +103,23 @@ def encontrar_pares_colineales(nodo_central: Tuple, vecinos: List,
 # ================================================================================================
 
 def segmentos_son_colineales(seg1: Tuple[Tuple, Tuple], seg2: Tuple[Tuple, Tuple],
-                            tolerancia_angulo: float = 2.0) -> bool:
+                            tolerancia_angulo: float = 2.0,
+                            tolerancia_y: float = 0.01,
+                            tolerancia_x: float = 0.01) -> bool:
     """
     Verifica si dos segmentos son colineales (están en la misma línea recta).
+
+    CORRECCIÓN CRÍTICA:
+    - Para horizontales: Verifica que ambos estén en la misma altura Y
+    - Para verticales: Verifica que ambos estén en la misma coordenada X
+    - Para diagonales: Usa verificación de ángulos
 
     Args:
         seg1: Tupla (punto1, punto2) del primer segmento
         seg2: Tupla (punto1, punto2) del segundo segmento
         tolerancia_angulo: Tolerancia en grados para considerar colineales
+        tolerancia_y: Tolerancia en Y para horizontales
+        tolerancia_x: Tolerancia en X para verticales
 
     Returns:
         True si los segmentos son colineales
@@ -118,8 +127,34 @@ def segmentos_son_colineales(seg1: Tuple[Tuple, Tuple], seg2: Tuple[Tuple, Tuple
     p1_1, p1_2 = seg1
     p2_1, p2_2 = seg2
 
+    # Extraer coordenadas
+    x1_1, y1_1 = p1_1[0], p1_1[1]
+    x1_2, y1_2 = p1_2[0], p1_2[1]
+    x2_1, y2_1 = p2_1[0], p2_1[1]
+    x2_2, y2_2 = p2_2[0], p2_2[1]
+
+    # Caso 1: HORIZONTALES (verificación directa por altura Y)
+    seg1_es_horizontal = abs(y1_1 - y1_2) < tolerancia_y
+    seg2_es_horizontal = abs(y2_1 - y2_2) < tolerancia_y
+
+    if seg1_es_horizontal and seg2_es_horizontal:
+        # Ambos son horizontales, verificar que estén en la misma altura Y
+        y1_avg = (y1_1 + y1_2) / 2
+        y2_avg = (y2_1 + y2_2) / 2
+        return abs(y1_avg - y2_avg) < tolerancia_y
+
+    # Caso 2: VERTICALES (verificación directa por coordenada X)
+    seg1_es_vertical = abs(x1_1 - x1_2) < tolerancia_x
+    seg2_es_vertical = abs(x2_1 - x2_2) < tolerancia_x
+
+    if seg1_es_vertical and seg2_es_vertical:
+        # Ambos son verticales, verificar que estén en la misma coordenada X
+        x1_avg = (x1_1 + x1_2) / 2
+        x2_avg = (x2_1 + x2_2) / 2
+        return abs(x1_avg - x2_avg) < tolerancia_x
+
+    # Caso 3: DIAGONALES (verificación por ángulos - método original)
     # Verificar que los 4 puntos sean colineales
-    # Tomamos el primer punto del primer segmento como referencia
     if son_colineales(p1_1, p1_2, p2_1, tolerancia_angulo) and \
        son_colineales(p1_1, p1_2, p2_2, tolerancia_angulo):
         return True
@@ -130,7 +165,8 @@ def segmentos_son_colineales(seg1: Tuple[Tuple, Tuple], seg2: Tuple[Tuple, Tuple
 def agrupar_segmentos_colineales(G: nx.Graph, section_bounds: Tuple,
                                 tipo: str = 'horizontal',
                                 tolerance_direccion: float = 0.01,
-                                tolerance_colineal: float = 2.0) -> List[Dict]:
+                                tolerance_colineal: float = 2.0,
+                                verbose: bool = False) -> List[Dict]:
     """
     Agrupa segmentos colineales del grafo para formar líneas continuas.
 
@@ -143,6 +179,7 @@ def agrupar_segmentos_colineales(G: nx.Graph, section_bounds: Tuple,
         tipo: 'horizontal', 'vertical' o 'diagonal'
         tolerance_direccion: Tolerancia para clasificar la dirección
         tolerance_colineal: Tolerancia en grados para considerar colineales
+        verbose: Imprimir información de debug
 
     Returns:
         Lista de grupos de segmentos colineales con información de extensión
@@ -195,10 +232,18 @@ def agrupar_segmentos_colineales(G: nx.Graph, section_bounds: Tuple,
             grupos_indices[raiz_j] = raiz_i
 
     # Encontrar todos los pares de segmentos colineales
+    pares_colineales = 0
     for i in range(len(segmentos)):
         for j in range(i + 1, len(segmentos)):
-            if segmentos_son_colineales(segmentos[i], segmentos[j], tolerance_colineal):
+            if segmentos_son_colineales(segmentos[i], segmentos[j],
+                                       tolerance_colineal,
+                                       tolerance_direccion,  # tolerance_y
+                                       tolerance_direccion): # tolerance_x
                 union_grupos(i, j)
+                pares_colineales += 1
+
+    if verbose and pares_colineales > 0:
+        print(f"       [DEBUG] Pares colineales encontrados: {pares_colineales}")
 
     # Organizar segmentos en grupos
     grupos_dict = {}
@@ -368,7 +413,8 @@ def obtener_horizontales_lado_a_lado(G: nx.Graph, section_bounds: Tuple,
         G, section_bounds,
         tipo='horizontal',
         tolerance_direccion=tolerance_horizontal,
-        tolerance_colineal=tolerance_colineal
+        tolerance_colineal=tolerance_colineal,
+        verbose=verbose
     )
 
     if verbose:
