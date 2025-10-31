@@ -514,7 +514,8 @@ def obtener_horizontales_lado_a_lado(G: nx.Graph, section_bounds: Tuple,
 # ================================================================================================
 
 def detectar_modulos_x_mejorado(G: nx.Graph, section_bounds: Tuple,
-                                symmetry_axis: float, tolerance: float = 0.05) -> Dict:
+                                symmetry_axis: float, tolerance: float = 0.05,
+                                verbose: bool = False) -> Dict:
     """Detecta módulos X buscando nodos de alto grado cerca del eje de simetría."""
     y_start, y_end = section_bounds
 
@@ -556,7 +557,13 @@ def detectar_modulos_x_mejorado(G: nx.Graph, section_bounds: Tuple,
 
         pares_colineales = encontrar_pares_colineales(nodo_central, vecinos, tolerance_angulo=10.0)
 
-        if len(pares_colineales) >= 2:
+        if verbose:
+            print(f"       [DEBUG X] Candidato Y={candidato['y']:.3f}: grado={candidato['grado']}, "
+                  f"vecinos={len(vecinos)}, pares_colineales={len(pares_colineales)}")
+
+        # Criterio relajado para módulos X en secciones pequeñas
+        # Si tiene grado >= 4 y al menos 1 par colineal con diagonales, puede ser X
+        if len(pares_colineales) >= 1:
             tiene_diagonales = False
             for v1, v2 in pares_colineales:
                 if not es_horizontal((v1, v2), tolerance):
@@ -566,6 +573,12 @@ def detectar_modulos_x_mejorado(G: nx.Graph, section_bounds: Tuple,
             if tiene_diagonales:
                 candidato['pares_colineales'] = pares_colineales
                 centros_modulo_x.append(candidato)
+                if verbose:
+                    print(f"       [DEBUG X] ✅ Aceptado como centro de módulo X")
+            elif verbose:
+                print(f"       [DEBUG X] ❌ Rechazado: no tiene diagonales")
+        elif verbose:
+            print(f"       [DEBUG X] ❌ Rechazado: insuficientes pares colineales")
 
     return {
         'detected': len(centros_modulo_x) > 0,
@@ -651,7 +664,7 @@ def analizar_seccion_con_grafo(G: nx.Graph, section: Dict, symmetry_axis: float,
         print(f"    📏 Y: [{y_start:.3f} - {y_end:.3f}], h: {section_height:.3f}")
 
     # PASO 1: Detectar módulos X
-    deteccion_x = detectar_modulos_x_mejorado(G, (y_start, y_end), symmetry_axis, tolerance)
+    deteccion_x = detectar_modulos_x_mejorado(G, (y_start, y_end), symmetry_axis, tolerance, verbose=verbose)
 
     if verbose:
         print(f"    🔍 Candidatos de grado alto: {deteccion_x['candidates']}")
