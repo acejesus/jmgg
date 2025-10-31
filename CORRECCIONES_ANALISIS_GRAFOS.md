@@ -71,7 +71,7 @@ Pipeline completo:
 
 ## Cambios en el Código
 
-### Antes (código original)
+### Versión 1 (código original - INCORRECTO)
 
 ```python
 def obtener_horizontales_de_grafo(G, section_bounds, tolerance=0.01):
@@ -82,24 +82,71 @@ def obtener_horizontales_de_grafo(G, section_bounds, tolerance=0.01):
     return horizontales
 ```
 
-### Después (código corregido)
+**Problemas:**
+- No agrupa segmentos colineales
+- No verifica que vayan de lado a lado
+
+### Versión 2 (primera corrección - PARCIALMENTE CORRECTA)
 
 ```python
 def obtener_horizontales_lado_a_lado(G, section_bounds, symmetry_axis, ...):
-    # 1. Obtener contornos
+    # 1. Obtener contornos (PROBLEMA: usa min/max de toda la sección)
     contorno_izq, contorno_der = obtener_contornos_en_seccion(...)
 
-    # 2. Agrupar horizontales colineales
+    # 2. Agrupar horizontales colineales (PROBLEMA: no agrupa transitivamente)
     grupos = agrupar_segmentos_colineales(G, ...)
 
     # 3. Filtrar solo las que van de lado a lado
     alturas_validas = []
     for grupo in grupos:
         if horizontal_va_lado_a_lado(grupo, contorno_izq, contorno_der):
-            alturas_validas.append(grupo['y_avg'])  # ✅ Solo válidas
+            alturas_validas.append(grupo['y_avg'])
 
     return alturas_validas
 ```
+
+**Problemas detectados:**
+1. ❌ Agrupación no funcionaba transitivamente (2 grupos en Y=3.960 en vez de 1)
+2. ❌ Contornos fijos para toda la sección (no funciona en torres decrecientes)
+
+### Versión 3 (segunda corrección - CORRECTA) ✅
+
+```python
+def agrupar_segmentos_colineales(G, section_bounds, ...):
+    # CORRECCIÓN: Usa Union-Find para agrupación transitiva
+    grupos_indices = list(range(len(segmentos)))
+
+    def find_grupo(i): ...
+    def union_grupos(i, j): ...
+
+    # Encontrar TODOS los pares colineales
+    for i in range(len(segmentos)):
+        for j in range(i + 1, len(segmentos)):
+            if segmentos_son_colineales(segmentos[i], segmentos[j]):
+                union_grupos(i, j)  # ✅ Agrupación transitiva
+    ...
+
+def calcular_contornos_en_altura(G, y_altura, symmetry_axis):
+    # CORRECCIÓN: Calcula contornos dinámicamente para cada altura Y
+    # 1. Busca nodos cercanos a y_altura
+    # 2. Interpola aristas que cruzan y_altura
+    # 3. Retorna extremos izq/der específicos de esa altura
+    ...
+
+def obtener_horizontales_lado_a_lado(G, section_bounds, symmetry_axis, ...):
+    grupos = agrupar_segmentos_colineales(G, ...)  # ✅ Agrupación correcta
+
+    for grupo in grupos:
+        # ✅ Contornos dinámicos por altura
+        limite_izq, limite_der = calcular_contornos_en_altura(G, grupo['y_avg'], symmetry_axis)
+        va_lado_a_lado = horizontal_va_lado_a_lado(grupo, G, symmetry_axis)
+        ...
+```
+
+**Correcciones implementadas:**
+1. ✅ **Union-Find**: Agrupación transitiva completa de segmentos colineales
+2. ✅ **Contornos dinámicos**: Se calculan específicamente para cada altura Y
+3. ✅ **Interpolación**: Las aristas se interpolan en la altura exacta de la horizontal
 
 ---
 
@@ -239,6 +286,31 @@ Si encuentras casos donde la detección falla:
 
 ---
 
+## Historial de Correcciones
+
+### V1.0 - Primera Implementación (Incompleta)
+- ❌ No agrupaba segmentos colineales
+- ❌ No verificaba horizontales lado a lado
+
+### V2.0 - Primera Corrección (Parcial)
+- ✅ Implementó agrupación de segmentos colineales
+- ✅ Implementó verificación lado a lado
+- ❌ Agrupación no funcionaba transitivamente
+- ❌ Contornos fijos para toda la sección
+
+### V2.1 - Segunda Corrección (Completa) ✅
+- ✅ Agrupación Union-Find (transitiva)
+- ✅ Contornos dinámicos por altura Y
+- ✅ Interpolación de aristas en altura específica
+- ✅ Funciona correctamente en torres decrecientes
+
+**Problemas resueltos en V2.1:**
+1. **Sección 1 (Decreciente)**: Ya no rechaza horizontales válidas con contornos variables
+2. **Secciones 2 y 4 (Constantes)**: Ya no acepta todas las horizontales por contornos restrictivos
+3. **Agrupación**: Segmentos en Y=3.960 ahora se agrupan correctamente en un solo grupo
+
+---
+
 **Fecha:** 2025-10-31
-**Versión:** 2.0 (Corrección de Colinealidad)
+**Versión:** 2.1 (Agrupación Union-Find + Contornos Dinámicos)
 **Estado:** ✅ Listo para Producción

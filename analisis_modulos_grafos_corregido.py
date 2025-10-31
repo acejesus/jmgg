@@ -134,6 +134,9 @@ def agrupar_segmentos_colineales(G: nx.Graph, section_bounds: Tuple,
     """
     Agrupa segmentos colineales del grafo para formar líneas continuas.
 
+    CORRECCIÓN: Usa múltiples pasadas para asegurar que todos los segmentos
+    colineales se agrupen, incluso si están conectados transitivamente.
+
     Args:
         G: Grafo de NetworkX
         section_bounds: (y_start, y_end) límites de la sección
@@ -173,37 +176,43 @@ def agrupar_segmentos_colineales(G: nx.Graph, section_bounds: Tuple,
     if not segmentos:
         return []
 
-    # Agrupar segmentos colineales
+    # Agrupar segmentos colineales usando Union-Find simplificado
+    # Crear grupos iniciales (cada segmento en su propio grupo)
+    grupos_indices = list(range(len(segmentos)))
+
+    def find_grupo(i):
+        """Encuentra el grupo raíz de un segmento."""
+        while grupos_indices[i] != i:
+            grupos_indices[i] = grupos_indices[grupos_indices[i]]  # Compresión de ruta
+            i = grupos_indices[i]
+        return i
+
+    def union_grupos(i, j):
+        """Une dos grupos."""
+        raiz_i = find_grupo(i)
+        raiz_j = find_grupo(j)
+        if raiz_i != raiz_j:
+            grupos_indices[raiz_j] = raiz_i
+
+    # Encontrar todos los pares de segmentos colineales
+    for i in range(len(segmentos)):
+        for j in range(i + 1, len(segmentos)):
+            if segmentos_son_colineales(segmentos[i], segmentos[j], tolerance_colineal):
+                union_grupos(i, j)
+
+    # Organizar segmentos en grupos
+    grupos_dict = {}
+    for i in range(len(segmentos)):
+        raiz = find_grupo(i)
+        if raiz not in grupos_dict:
+            grupos_dict[raiz] = []
+        grupos_dict[raiz].append(segmentos[i])
+
+    # Calcular información de cada grupo
     grupos = []
-    segmentos_usados = set()
-
-    for i, seg1 in enumerate(segmentos):
-        if i in segmentos_usados:
-            continue
-
-        # Crear nuevo grupo
-        grupo = [seg1]
-        segmentos_usados.add(i)
-
-        # Buscar segmentos colineales
-        for j, seg2 in enumerate(segmentos):
-            if j in segmentos_usados:
-                continue
-
-            # Verificar si seg2 es colineal con algún segmento del grupo
-            es_colineal_con_grupo = False
-            for seg_grupo in grupo:
-                if segmentos_son_colineales(seg_grupo, seg2, tolerance_colineal):
-                    es_colineal_con_grupo = True
-                    break
-
-            if es_colineal_con_grupo:
-                grupo.append(seg2)
-                segmentos_usados.add(j)
-
-        # Calcular información del grupo
+    for grupo_segs in grupos_dict.values():
         todos_los_puntos = []
-        for seg in grupo:
+        for seg in grupo_segs:
             todos_los_puntos.extend([seg[0], seg[1]])
 
         # Calcular extensión en X e Y
@@ -215,8 +224,8 @@ def agrupar_segmentos_colineales(G: nx.Graph, section_bounds: Tuple,
         y_avg = sum(y_coords) / len(y_coords)
 
         grupos.append({
-            'segmentos': grupo,
-            'num_segmentos': len(grupo),
+            'segmentos': grupo_segs,
+            'num_segmentos': len(grupo_segs),
             'x_min': x_min,
             'x_max': x_max,
             'extension_x': x_max - x_min,
@@ -229,15 +238,81 @@ def agrupar_segmentos_colineales(G: nx.Graph, section_bounds: Tuple,
     return grupos
 
 
-def horizontal_va_lado_a_lado(grupo: Dict, contorno_izq: List, contorno_der: List,
+def calcular_contornos_en_altura(G: nx.Graph, y_altura: float,
+                                 symmetry_axis: float,
+                                 tolerance_y: float = 0.1) -> Tuple[float, float]:
+    """
+    Calcula los límites izquierdo y derecho del contorno en una altura Y específica.
+
+    CORRECCIÓN CLAVE:
+    - En torres decrecientes, el contorno cambia con la altura Y
+    - Busca nodos y aristas cerca de la altura especificada
+    - Retorna los extremos X más alejados del eje de simetría
+
+    Args:
+        G: Grafo de NetworkX
+        y_altura: Altura Y donde calcular los contornos
+        symmetry_axis: Coordenada X del eje de simetría
+        tolerance_y: Tolerancia en Y para considerar nodos/aristas
+
+    Returns:
+        (limite_izq, limite_der): Coordenadas X de los contornos
+    """
+    x_izq_min = float('inf')
+    x_der_max = float('-inf')
+
+    # Buscar nodos cercanos a esta altura
+    for node in G.nodes():
+        if len(node) >= 2:
+            x, y = node[0], node[1]
+
+            if abs(y - y_altura) < tolerance_y:
+                if x < symmetry_axis:
+                    x_izq_min = min(x_izq_min, x)
+                else:
+                    x_der_max = max(x_der_max, x)
+
+    # Buscar aristas que intersectan esta altura
+    for edge in G.edges():
+        n1, n2 = edge
+        if len(n1) >= 2 and len(n2) >= 2:
+            y1, y2 = n1[1], n2[1]
+            x1, x2 = n1[0], n2[0]
+
+            # Si la arista cruza la altura y_altura
+            if (y1 <= y_altura <= y2) or (y2 <= y_altura <= y1):
+                # Interpolar X en la altura y_altura
+                if abs(y2 - y1) > 1e-6:
+                    t = (y_altura - y1) / (y2 - y1)
+                    x_interp = x1 + t * (x2 - x1)
+
+                    if x_interp < symmetry_axis:
+                        x_izq_min = min(x_izq_min, x_interp)
+                    else:
+                        x_der_max = max(x_der_max, x_interp)
+
+    # Si no se encontraron puntos, usar valores por defecto
+    if x_izq_min == float('inf'):
+        x_izq_min = 0.0
+    if x_der_max == float('-inf'):
+        x_der_max = symmetry_axis * 2
+
+    return x_izq_min, x_der_max
+
+
+def horizontal_va_lado_a_lado(grupo: Dict, G: nx.Graph, symmetry_axis: float,
                               tolerance: float = 0.5) -> bool:
     """
     Verifica si un grupo de horizontales colineales va de lado a lado de la torre.
 
+    CORRECCIÓN CLAVE:
+    - Calcula los contornos dinámicamente en la altura Y de la horizontal
+    - En torres decrecientes, el contorno cambia con la altura
+
     Args:
         grupo: Diccionario con información del grupo (de agrupar_segmentos_colineales)
-        contorno_izq: Lista de coordenadas X del contorno izquierdo en la sección
-        contorno_der: Lista de coordenadas X del contorno derecho en la sección
+        G: Grafo de NetworkX
+        symmetry_axis: Coordenada X del eje de simetría
         tolerance: Tolerancia en metros para considerar que llega al contorno
 
     Returns:
@@ -247,50 +322,14 @@ def horizontal_va_lado_a_lado(grupo: Dict, contorno_izq: List, contorno_der: Lis
     x_max = grupo['x_max']
     y_avg = grupo['y_avg']
 
-    # Obtener los límites de los contornos en esta altura
-    # (simplificación: usamos los valores extremos de los contornos)
-    if not contorno_izq or not contorno_der:
-        return False
-
-    limite_izq = min(contorno_izq)
-    limite_der = max(contorno_der)
+    # Calcular contornos en esta altura específica
+    limite_izq, limite_der = calcular_contornos_en_altura(G, y_avg, symmetry_axis)
 
     # Verificar si llega cerca de ambos contornos
     llega_izquierda = abs(x_min - limite_izq) < tolerance
     llega_derecha = abs(x_max - limite_der) < tolerance
 
     return llega_izquierda and llega_derecha
-
-
-def obtener_contornos_en_seccion(G: nx.Graph, section_bounds: Tuple,
-                                symmetry_axis: float) -> Tuple[List, List]:
-    """
-    Obtiene las coordenadas X de los contornos izquierdo y derecho en una sección.
-
-    Args:
-        G: Grafo de NetworkX
-        section_bounds: (y_start, y_end) límites de la sección
-        symmetry_axis: Coordenada X del eje de simetría
-
-    Returns:
-        (contorno_izq, contorno_der): Listas de coordenadas X
-    """
-    y_start, y_end = section_bounds
-
-    contorno_izq = []
-    contorno_der = []
-
-    for node in G.nodes():
-        if len(node) >= 2:
-            x, y = node[0], node[1]
-
-            if y_start <= y <= y_end:
-                if x < symmetry_axis:
-                    contorno_izq.append(x)
-                else:
-                    contorno_der.append(x)
-
-    return contorno_izq, contorno_der
 
 
 # ================================================================================================
@@ -308,6 +347,7 @@ def obtener_horizontales_lado_a_lado(G: nx.Graph, section_bounds: Tuple,
 
     CORRECCIÓN CLAVE:
     - Agrupa segmentos horizontales colineales
+    - Calcula contornos dinámicamente para cada altura Y
     - Solo cuenta como límite las horizontales continuas que van del contorno izquierdo al derecho
     - Descarta horizontales internas que no cruzan toda la torre
 
@@ -323,13 +363,7 @@ def obtener_horizontales_lado_a_lado(G: nx.Graph, section_bounds: Tuple,
     Returns:
         Lista de alturas Y donde hay horizontales que van de lado a lado
     """
-    # Paso 1: Obtener contornos
-    contorno_izq, contorno_der = obtener_contornos_en_seccion(G, section_bounds, symmetry_axis)
-
-    if verbose:
-        print(f"    📊 Contornos: Izq [{min(contorno_izq):.2f}], Der [{max(contorno_der):.2f}]")
-
-    # Paso 2: Agrupar horizontales colineales
+    # Agrupar horizontales colineales
     grupos_horizontales = agrupar_segmentos_colineales(
         G, section_bounds,
         tipo='horizontal',
@@ -340,18 +374,22 @@ def obtener_horizontales_lado_a_lado(G: nx.Graph, section_bounds: Tuple,
     if verbose:
         print(f"    📊 Grupos horizontales encontrados: {len(grupos_horizontales)}")
 
-    # Paso 3: Filtrar solo las que van de lado a lado
+    # Filtrar solo las que van de lado a lado
     alturas_validas = []
 
     for grupo in grupos_horizontales:
+        # Calcular contornos dinámicamente en la altura de esta horizontal
+        limite_izq, limite_der = calcular_contornos_en_altura(G, grupo['y_avg'], symmetry_axis)
+
         va_lado_a_lado = horizontal_va_lado_a_lado(
-            grupo, contorno_izq, contorno_der, tolerance_contorno
+            grupo, G, symmetry_axis, tolerance_contorno
         )
 
         if verbose:
             print(f"       Y={grupo['y_avg']:.3f}: {grupo['num_segmentos']} segs, "
                   f"X=[{grupo['x_min']:.2f} - {grupo['x_max']:.2f}], "
                   f"ext={grupo['extension_x']:.2f}, "
+                  f"contornos=[{limite_izq:.2f} - {limite_der:.2f}], "
                   f"lado_a_lado={'✅' if va_lado_a_lado else '❌'}")
 
         if va_lado_a_lado:
