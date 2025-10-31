@@ -1,11 +1,12 @@
 # ================================================================================================
-# ANÁLISIS DE MÓDULOS CON GRAFOS - VERSIÓN CORREGIDA CON LÓGICA DE COLINEALIDAD
+# ANÁLISIS DE MÓDULOS CON GRAFOS - VERSIÓN 2.3 (Conectividad Física)
 # ================================================================================================
 # CORRECCIONES PRINCIPALES:
 # 1. Agrupa segmentos colineales para formar líneas continuas
-# 2. Verifica que las horizontales vayan de lado a lado (contorno izquierdo → contorno derecho)
-# 3. Filtra horizontales internas que no definen límites de módulos
-# 4. Aplica la misma lógica a diagonales en módulos X
+# 2. Verifica CONECTIVIDAD FÍSICA: segmentos deben compartir nodos
+# 3. Verifica que las horizontales vayan de lado a lado (contorno izquierdo → contorno derecho)
+# 4. Filtra horizontales internas que no definen límites de módulos
+# 5. Aplica la misma lógica a diagonales en módulos X
 # ================================================================================================
 
 import matplotlib.pyplot as plt
@@ -17,7 +18,7 @@ import pandas as pd
 import os
 from typing import List, Tuple, Dict, Set
 
-print("🎯 ANÁLISIS DE MÓDULOS CON ESTRATEGIA DE GRAFOS (VERSIÓN CORREGIDA)")
+print("🎯 ANÁLISIS DE MÓDULOS - VERSIÓN 2.3 (Conectividad Física)")
 print("="*60)
 
 # ================================================================================================
@@ -283,6 +284,50 @@ def agrupar_segmentos_colineales(G: nx.Graph, section_bounds: Tuple,
     return grupos
 
 
+def verificar_conectividad_grupo(grupo_segs: List[Tuple[Tuple, Tuple]]) -> bool:
+    """
+    Verifica si los segmentos de un grupo están conectados físicamente (comparten nodos).
+
+    CORRECCIÓN CRÍTICA V2.3:
+    - Solo acepta grupos donde los segmentos forman una cadena continua
+    - Rechaza horizontales colineales pero NO conectadas físicamente
+    - Ejemplo válido: seg1=(A→B) y seg2=(B→C) comparten nodo B
+    - Ejemplo inválido: seg1=(A→B) y seg2=(C→D) no comparten nodos
+
+    Args:
+        grupo_segs: Lista de segmentos (tuplas de puntos)
+
+    Returns:
+        True si todos los segmentos están conectados formando una cadena
+    """
+    if len(grupo_segs) <= 1:
+        return True  # Un solo segmento siempre está "conectado"
+
+    # Construir grafo de conectividad entre segmentos
+    # Usar BFS/DFS para verificar que todos son alcanzables desde el primero
+    segmentos_conectados = set([0])  # Empezar con el primer segmento
+    cambios = True
+
+    while cambios:
+        cambios = False
+        for i in segmentos_conectados.copy():
+            seg_i = grupo_segs[i]
+            nodos_i = set([seg_i[0], seg_i[1]])
+
+            for j in range(len(grupo_segs)):
+                if j not in segmentos_conectados:
+                    seg_j = grupo_segs[j]
+                    nodos_j = set([seg_j[0], seg_j[1]])
+
+                    # Verificar si comparten algún nodo
+                    if nodos_i & nodos_j:  # Intersección no vacía
+                        segmentos_conectados.add(j)
+                        cambios = True
+
+    # Verificar que todos los segmentos estén conectados
+    return len(segmentos_conectados) == len(grupo_segs)
+
+
 def calcular_contornos_en_altura(G: nx.Graph, y_altura: float,
                                  symmetry_axis: float,
                                  tolerance_y: float = 0.1) -> Tuple[float, float]:
@@ -420,13 +465,26 @@ def obtener_horizontales_lado_a_lado(G: nx.Graph, section_bounds: Tuple,
     if verbose:
         print(f"    📊 Grupos horizontales encontrados: {len(grupos_horizontales)}")
 
-    # Filtrar solo las que van de lado a lado
+    # Filtrar solo las que van de lado a lado Y están conectadas físicamente
     alturas_validas = []
+    grupos_rechazados_conectividad = 0
 
     for grupo in grupos_horizontales:
-        # Calcular contornos dinámicamente en la altura de esta horizontal
+        # PASO 1: Verificar conectividad física (V2.3)
+        esta_conectado = verificar_conectividad_grupo(grupo['segmentos'])
+
+        if not esta_conectado:
+            grupos_rechazados_conectividad += 1
+            if verbose:
+                print(f"       Y={grupo['y_avg']:.3f}: {grupo['num_segmentos']} segs, "
+                      f"X=[{grupo['x_min']:.2f} - {grupo['x_max']:.2f}], "
+                      f"conectado=❌ (rechazado)")
+            continue
+
+        # PASO 2: Calcular contornos dinámicamente en la altura de esta horizontal
         limite_izq, limite_der = calcular_contornos_en_altura(G, grupo['y_avg'], symmetry_axis)
 
+        # PASO 3: Verificar que vaya de lado a lado
         va_lado_a_lado = horizontal_va_lado_a_lado(
             grupo, G, symmetry_axis, tolerance_contorno
         )
@@ -436,10 +494,14 @@ def obtener_horizontales_lado_a_lado(G: nx.Graph, section_bounds: Tuple,
                   f"X=[{grupo['x_min']:.2f} - {grupo['x_max']:.2f}], "
                   f"ext={grupo['extension_x']:.2f}, "
                   f"contornos=[{limite_izq:.2f} - {limite_der:.2f}], "
+                  f"conectado=✅, "
                   f"lado_a_lado={'✅' if va_lado_a_lado else '❌'}")
 
         if va_lado_a_lado:
             alturas_validas.append(grupo['y_avg'])
+
+    if verbose and grupos_rechazados_conectividad > 0:
+        print(f"    ⚠️  Grupos rechazados por falta de conectividad: {grupos_rechazados_conectividad}")
 
     if verbose:
         print(f"    ✅ Horizontales válidas (lado a lado): {len(alturas_validas)}")
@@ -605,8 +667,15 @@ def analizar_seccion_con_grafo(G: nx.Graph, section: Dict, symmetry_axis: float,
             G, (y_start, y_end), deteccion_x['x_centers'], symmetry_axis, tolerance, verbose=verbose
         )
 
+        # Filtrar diagonales que están en los límites de sección (evitar duplicados)
+        tolerancia_limite = 0.001
+        alturas_filtradas = []
+        for alt in alturas_diagonales:
+            if abs(alt - y_start) > tolerancia_limite and abs(alt - y_end) > tolerancia_limite:
+                alturas_filtradas.append(alt)
+
         # Agregar límites de sección
-        alturas_modulos = sorted(list(set([y_start, y_end] + alturas_diagonales)))
+        alturas_modulos = sorted([y_start] + alturas_filtradas + [y_end])
 
         return {
             'metodo': 'grafo-diagonal-colineal',
@@ -629,8 +698,16 @@ def analizar_seccion_con_grafo(G: nx.Graph, section: Dict, symmetry_axis: float,
             verbose=verbose
         )
 
+        # Filtrar horizontales que están en los límites de sección (evitar duplicados)
+        # Tolerancia: 0.001m (1mm) para considerar que es el mismo límite
+        tolerancia_limite = 0.001
+        alturas_filtradas = []
+        for alt in alturas_horizontales:
+            if abs(alt - y_start) > tolerancia_limite and abs(alt - y_end) > tolerancia_limite:
+                alturas_filtradas.append(alt)
+
         # Agregar límites de sección
-        alturas_modulos = sorted(list(set([y_start, y_end] + alturas_horizontales)))
+        alturas_modulos = sorted([y_start] + alturas_filtradas + [y_end])
 
         return {
             'metodo': 'grafo-horizontal-colineal',
@@ -824,5 +901,5 @@ for i, section in enumerate(sections_con_modulos):
             print(f"       M{j+1}: h={h:.3f}m, Y=[{y_ini:.3f} - {y_fin:.3f}]")
 
 print("\n" + "="*60)
-print("✅ ANÁLISIS CON COLINEALIDAD CORREGIDO COMPLETADO")
+print("✅ ANÁLISIS COMPLETADO - VERSIÓN 2.3 (Conectividad Física)")
 print("="*60)
