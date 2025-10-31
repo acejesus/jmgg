@@ -1,12 +1,13 @@
 # ================================================================================================
-# ANÁLISIS DE MÓDULOS CON GRAFOS - VERSIÓN 2.3 (Conectividad Física)
+# ANÁLISIS DE MÓDULOS CON GRAFOS - VERSIÓN 2.4 (Limpieza de Grafos Integrada)
 # ================================================================================================
 # CORRECCIONES PRINCIPALES:
-# 1. Agrupa segmentos colineales para formar líneas continuas
-# 2. Verifica CONECTIVIDAD FÍSICA: segmentos deben compartir nodos
-# 3. Verifica que las horizontales vayan de lado a lado (contorno izquierdo → contorno derecho)
-# 4. Filtra horizontales internas que no definen límites de módulos
-# 5. Aplica la misma lógica a diagonales en módulos X
+# 1. Limpieza de grafos: contracción de nodos, combinación de aristas colineales
+# 2. Agrupa segmentos colineales para formar líneas continuas
+# 3. Verifica CONECTIVIDAD FÍSICA: segmentos deben compartir nodos
+# 4. Verifica que las horizontales vayan de lado a lado (contorno izquierdo → contorno derecho)
+# 5. Filtra horizontales internas que no definen límites de módulos
+# 6. Aplica la misma lógica a diagonales en módulos X
 # ================================================================================================
 
 import matplotlib.pyplot as plt
@@ -18,7 +19,7 @@ import pandas as pd
 import os
 from typing import List, Tuple, Dict, Set
 
-print("🎯 ANÁLISIS DE MÓDULOS - VERSIÓN 2.3 (Conectividad Física)")
+print("🎯 ANÁLISIS DE MÓDULOS - VERSIÓN 2.4 (Limpieza de Grafos)")
 print("="*60)
 
 # ================================================================================================
@@ -97,6 +98,174 @@ def encontrar_pares_colineales(nodo_central: Tuple, vecinos: List,
                 pares.append((v1, v2))
 
     return pares
+
+
+# ================================================================================================
+# FUNCIONES DE LIMPIEZA DE GRAFOS
+# ================================================================================================
+
+def crear_grafo_desde_lineas_v2(lineas: List[Tuple]) -> nx.Graph:
+    """Crea un grafo de NetworkX desde una lista de líneas."""
+    G = nx.Graph()
+
+    for linea in lineas:
+        if len(linea) == 6:
+            x1, y1, z1, x2, y2, z2 = linea
+            p1 = (x1, y1, z1)
+            p2 = (x2, y2, z2)
+        elif len(linea) == 2:
+            p1, p2 = linea
+        else:
+            raise ValueError(f"Formato de línea no reconocido: {linea}")
+
+        G.add_node(p1, pos=p1)
+        G.add_node(p2, pos=p2)
+        G.add_edge(p1, p2)
+
+    return G
+
+
+def contraccion_dinamica_nodos(G: nx.Graph, tolerancia: float = 0.01) -> nx.Graph:
+    """
+    Contrae nodos que están muy cerca entre sí.
+
+    Esto resuelve errores de precisión del DXF donde puntos que deberían
+    ser el mismo están ligeramente desplazados.
+    """
+    G_limpio = G.copy()
+    nodos = list(G_limpio.nodes())
+
+    coords = np.array(nodos)
+    if len(coords) > 0:
+        tamaño = max(coords.max(axis=0) - coords.min(axis=0))
+        tolerancia_abs = tolerancia * tamaño
+    else:
+        tolerancia_abs = tolerancia
+
+    procesados = set()
+
+    for i, nodo1 in enumerate(nodos):
+        if nodo1 in procesados or nodo1 not in G_limpio:
+            continue
+
+        grupo = [nodo1]
+
+        for j, nodo2 in enumerate(nodos[i+1:], i+1):
+            if nodo2 in procesados or nodo2 not in G_limpio:
+                continue
+
+            if distancia_euclidiana(nodo1, nodo2) < tolerancia_abs:
+                grupo.append(nodo2)
+                procesados.add(nodo2)
+
+        if len(grupo) > 1:
+            centroide = tuple(np.mean([list(n) for n in grupo], axis=0))
+
+            for nodo in grupo:
+                vecinos = list(G_limpio.neighbors(nodo))
+                for vecino in vecinos:
+                    if vecino not in grupo:
+                        G_limpio.add_edge(centroide, vecino)
+                G_limpio.remove_node(nodo)
+
+            G_limpio.add_node(centroide, pos=centroide)
+
+    return G_limpio
+
+
+def combinacion_aristas(G: nx.Graph, tolerancia_angulo: float = 2.0) -> nx.Graph:
+    """
+    Combina aristas adyacentes que forman una línea recta.
+
+    CRÍTICO: Esto une segmentos divididos de diagonales y horizontales,
+    permitiendo detectar correctamente módulos X.
+    """
+    G_limpio = G.copy()
+    cambios = True
+
+    while cambios:
+        cambios = False
+        nodos_grado_2 = [n for n in G_limpio.nodes() if G_limpio.degree(n) == 2]
+
+        for nodo in nodos_grado_2:
+            vecinos = list(G_limpio.neighbors(nodo))
+            if len(vecinos) == 2:
+                v1, v2 = vecinos
+
+                if son_colineales(v1, nodo, v2, tolerancia_angulo):
+                    G_limpio.add_edge(v1, v2)
+                    G_limpio.remove_node(nodo)
+                    cambios = True
+                    break
+
+    return G_limpio
+
+
+def eliminacion_aristas_redundantes(G: nx.Graph, tolerancia_longitud: float = 0.005) -> nx.Graph:
+    """
+    Elimina aristas cortas que están cubiertas por aristas más largas.
+    """
+    G_limpio = G.copy()
+
+    nodos = np.array(list(G_limpio.nodes()))
+    if len(nodos) > 0:
+        tamaño = max(nodos.max(axis=0) - nodos.min(axis=0))
+        longitud_min = tolerancia_longitud * tamaño
+    else:
+        longitud_min = tolerancia_longitud
+
+    aristas_con_longitud = []
+    for e in G_limpio.edges():
+        longitud = distancia_euclidiana(e[0], e[1])
+        aristas_con_longitud.append((e, longitud))
+
+    aristas_con_longitud.sort(key=lambda x: x[1])
+
+    for arista, longitud in aristas_con_longitud:
+        if longitud < longitud_min and G_limpio.has_edge(*arista):
+            G_temp = G_limpio.copy()
+            G_temp.remove_edge(*arista)
+
+            if nx.is_connected(G_temp):
+                G_limpio.remove_edge(*arista)
+
+    G_limpio.remove_nodes_from(list(nx.isolates(G_limpio)))
+
+    return G_limpio
+
+
+def limpiar_grafo_completo(G: nx.Graph, verbose: bool = False) -> nx.Graph:
+    """
+    Aplica todas las etapas de limpieza al grafo.
+
+    Pipeline:
+    1. Contracción de nodos cercanos (errores de precisión)
+    2. Combinación de aristas colineales (une segmentos divididos)
+    3. Eliminación de aristas redundantes (simplifica)
+
+    Returns:
+        Grafo limpio y simplificado
+    """
+    if verbose:
+        print(f"\n🧹 LIMPIEZA DE GRAFO")
+        print(f"   Nodos iniciales: {G.number_of_nodes()}, Aristas iniciales: {G.number_of_edges()}")
+
+    # Paso 1: Contraer nodos cercanos
+    G = contraccion_dinamica_nodos(G, tolerancia=0.01)
+    if verbose:
+        print(f"   Después de contracción: {G.number_of_nodes()} nodos, {G.number_of_edges()} aristas")
+
+    # Paso 2: Combinar aristas colineales (CRÍTICO para módulos X)
+    G = combinacion_aristas(G, tolerancia_angulo=2.0)
+    if verbose:
+        print(f"   Después de combinación: {G.number_of_nodes()} nodos, {G.number_of_edges()} aristas")
+
+    # Paso 3: Eliminar redundancias
+    G = eliminacion_aristas_redundantes(G, tolerancia_longitud=0.005)
+    if verbose:
+        print(f"   Después de limpieza: {G.number_of_nodes()} nodos, {G.number_of_edges()} aristas")
+
+    return G
 
 
 # ================================================================================================
@@ -770,11 +939,18 @@ print(f"   • Eje de simetría: X = {symmetry_axis:.3f}")
 # CREAR GRAFO
 # ================================================================================================
 
-print("\n🔧 CREANDO GRAFO...")
+print("\n🔧 CREANDO Y LIMPIANDO GRAFO...")
 
 G = crear_grafo_desde_lineas(oriented_lines)
 
-print(f"✅ Grafo creado:")
+print(f"   Grafo inicial:")
+print(f"   • Nodos: {G.number_of_nodes()}")
+print(f"   • Aristas: {G.number_of_edges()}")
+
+# Aplicar limpieza del grafo (CRÍTICO para detectar módulos X)
+G = limpiar_grafo_completo(G, verbose=True)
+
+print(f"✅ Grafo limpio:")
 print(f"   • Nodos: {G.number_of_nodes()}")
 print(f"   • Aristas: {G.number_of_edges()}")
 
@@ -914,5 +1090,5 @@ for i, section in enumerate(sections_con_modulos):
             print(f"       M{j+1}: h={h:.3f}m, Y=[{y_ini:.3f} - {y_fin:.3f}]")
 
 print("\n" + "="*60)
-print("✅ ANÁLISIS COMPLETADO - VERSIÓN 2.3 (Conectividad Física)")
+print("✅ ANÁLISIS COMPLETADO - VERSIÓN 2.4 (Limpieza de Grafos)")
 print("="*60)
